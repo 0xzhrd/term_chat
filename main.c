@@ -1,6 +1,8 @@
 #include "headers.h"
 
-volatile sig_atomic_t g_running = 1;
+volatile sig_atomic_t running = 1;
+volatile sig_atomic_t g_terminal_resized = 0;
+
 
 int main(int argc, char *argv[])
 {    
@@ -44,4 +46,3 @@ int main(int argc, char *argv[])
     destroy_message_buffer(&g_msg_buffer);
     return(0);
 }
-

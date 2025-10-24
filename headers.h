@@ -10,6 +10,7 @@
 
 #include <sys/socket.h>
 #include <signal.h>
+#include <sys/signal.h>
 #include <termios.h>
 #include <pthread.h>
 
@@ -23,9 +24,9 @@
 
 #define ANSI_BG_GREEN "\e[0;92m"
 #define ANSI_BG_CYAN "\e[0;96m"
+#define ANSI_RED "\e[1;91m"
 #define ANSI_BG_YELLOW "\e[1;33m" 
 #define ANSI_RESET "\e[0m"
-
 
 
 #define OUTPUT_BUFFER_SIZE (80 * 40 * 20)
@@ -39,6 +40,8 @@
 #define MAX_FILENAME_LEN 255
 #define KEY_ARROW_RIGHT 1002
 #define KEY_ARROW_LEFT  1003
+#define KEY_PAGE_UP 1004
+#define KEY_PAGE_DOWN 1005
 
 typedef struct 
 {
@@ -50,14 +53,16 @@ typedef struct
 
 
 char msg_buff[BUFSIZE];
+char centered[BUFSIZE];
 MessageBuffer g_msg_buffer;
-static struct termios orig_termios;
-static int chat_width, chat_height;
+struct termios orig_termios;
+static int term_init = 0;
 static const int MAXPENDING = 5;
 int term_height, term_width;
 int identifier;
-int message_types[MAX_MESSAGES];
-extern volatile sig_atomic_t g_running;
+extern volatile sig_atomic_t running;
+extern volatile sig_atomic_t g_terminal_resized;
+extern int scroll_offset;
 
 
 void HandleClient(char **argv);
@@ -86,6 +91,11 @@ void destroy_message_buffer(MessageBuffer *mb);
 void signal_handler(int signum);
 void cleanup_terminal();
 void setup_signal_handlers();
+void format_system_messages(char *dest, size_t dest_size, const char *msg);
+
+void save_term_state();
+void restore_term_state();
+void set_raw_mode();
 
 
 #endif

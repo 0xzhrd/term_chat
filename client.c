@@ -7,23 +7,23 @@ void HandleServer(char *argv[])
     in_port_t ServerPort = atoi(argv[3]);
 
     get_terminal_size();
+    save_term_state();
     clear_screen();
-    add_message("\t\t\t\t\tCLIENT ACTIVE\n", 0, NULL);
+
+    format_system_messages(centered, sizeof(centered), "CLIENT ACTIVE\n");
+    add_message(centered, 0, NULL);
+    memset(centered, 0, sizeof(centered));
 
     char input[MAX_INPUT] = {0};
-    setup_input_line(input);
 
-    struct termios old_tio, new_tio;
-    tcgetattr(STDIN_FILENO, &old_tio);
-    new_tio = old_tio;
-    new_tio.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+    set_raw_mode();
+    setup_input_line(input);
 
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);  
     if(sock < 0)
     {
         fprintf(stderr, "socket initialization failed\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+        restore_term_state();
         exit(1);
     }
 
@@ -34,15 +34,15 @@ void HandleServer(char *argv[])
     int rtnVal = inet_pton(AF_INET, ServerIP, &ServerAddr.sin_addr.s_addr);
     if(rtnVal == 0)
     {
-        fprintf(stderr, "inet_pton failed, invalid address string\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+        fprintf(stderr, "inet_pton failed, invalid address string.\n");
+        restore_term_state();
         close(sock);
         exit(1);
     }
     else if(rtnVal < 0)
     {
-        fprintf(stderr, "inet_pton failed\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+        fprintf(stderr, "inet_pton failed.\n");
+        restore_term_state();
         close(sock);
         exit(1);
     }
@@ -50,8 +50,8 @@ void HandleServer(char *argv[])
 
     if(connect(sock, (struct sockaddr *) &ServerAddr, sizeof(ServerAddr)) < 0)
     {
-        fprintf(stderr, "connect failed\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+        fprintf(stderr, "connect failed.\n");
+        restore_term_state();
         close(sock);
         exit(1);
     }
@@ -68,8 +68,7 @@ void HandleServer(char *argv[])
     const size_t prompt_len = 4;
 
 
-
-    while(g_running)
+    while(running)
     {
         fd_set read_fds;
         struct timeval timeout;
@@ -106,9 +105,7 @@ void HandleServer(char *argv[])
             {
                 add_message("\nSERVER DISCONNECTED\n", 0, NULL);
 
-                tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
-                move_cursor(term_height + 1, 1);
-                printf("\n");
+                restore_term_state();
                 close(sock);
                 exit(1);
             } 
@@ -126,11 +123,15 @@ void HandleServer(char *argv[])
 
                 if(rcvSocket(sock) == 0)
                 {
-                    add_message("FILE RECEIVED SUCCESSFULLY", 0, Name);
+                    format_system_messages(centered, sizeof(centered), "FILE RECEIVED SUCCESSFULLY.\n");
+                    add_message(centered, 0, Name);
+                    memset(centered, 0, sizeof(centered));
                 }
                 else
                 {
-                    add_message("FILE TRANSFER FAILED", 0, Name);
+                    format_system_messages(centered, sizeof(centered), "FILE TRANSFER FAILED.\n");
+                    add_message(centered, 0, Name);
+                    memset(centered, 0,  sizeof(centered));
                 }
             }
             else
@@ -145,11 +146,35 @@ void HandleServer(char *argv[])
         {
             int key = read_key();
 
-            if(key == '\n' || key == '\r')
+            if(key == KEY_PAGE_UP)
+            {
+                scroll_offset += (term_height - 2);
+                display_messages(&g_msg_buffer, Name);
+                setup_input_line(input);
+            }
+            else if(key == KEY_PAGE_DOWN)
+            {
+                scroll_offset -= (term_height - 2);
+                if(scroll_offset < 0) scroll_offset = 0;
+                display_messages(&g_msg_buffer, Name);
+                setup_input_line(input);
+            }
+            else if(key == '\n' || key == '\r')
             {
                 if(input_len > 0)
                 {
                     input[input_len] = '\0';
+
+                    if(strcmp(input, "::quit") == 0)
+                    {
+
+                        clear_screen();
+                        add_message("\n\nDISCONNECTED.\n", 0, NULL);
+                        memset(input, 0, sizeof(input));
+                        restore_term_state();
+                        running = 0;
+                        exit(0);
+                    }
                     
                     identifier = 1;
                     add_message(input, identifier, Name);
@@ -177,15 +202,21 @@ void HandleServer(char *argv[])
                             
                             if(ack_received <= 0)
                             {
-                                add_message("Failed to receive ACK (timeout or error).\n", 0, NULL);
+                                format_system_messages(centered, sizeof(centered), "Failed to receive ACK (timeout/error).\n");
+                                add_message(centered, 0, NULL);
+                                memset(centered, 0, sizeof(centered));
                             }
                             else if(strncmp(ack, "ACK", 3) != 0)
                             {
-                                add_message("Invalid ACK received from server.\n", 0, NULL);
+                                format_system_messages(centered, sizeof(centered), "Invalid ACK received from server.\n");
+                                add_message(centered, 0, NULL);
+                                memset(centered, 0, sizeof(centered));
                             }
                             else if(handle_user_input(clntStr, sock, prefix_len) != 0)
                             {
-                                add_message("File transfer encountered an error.\n", 0, NULL);
+                                format_system_messages(centered, sizeof(centered), "File transfer encountered an error.\n");
+                                add_message(centered, 0, NULL);
+                                memset(centered, 0, sizeof(centered));
                             }
                         }
                     }
@@ -206,7 +237,6 @@ void HandleServer(char *argv[])
                 }
                 setup_input_line(input);
             }
-
             else if(key == 127 || key == '\b')
             {
                 if(cursor_pos > 0)
@@ -220,8 +250,7 @@ void HandleServer(char *argv[])
                     fflush(stdout);
                 }
             }
-
-            else if(key == 1003)
+            else if(key == KEY_ARROW_LEFT)
             {
                 if(cursor_pos > 0)
                 {
@@ -230,7 +259,7 @@ void HandleServer(char *argv[])
                     fflush(stdout);
                 }
             }
-            else if(key == 1002)
+            else if(key == KEY_ARROW_RIGHT)
             {
                 if(cursor_pos < input_len)
                 {
@@ -257,10 +286,9 @@ void HandleServer(char *argv[])
             }
         }
     }
-    tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
- 
+
+    restore_term_state();
     move_cursor(term_height + 1, 1);
-    printf("\n");
     close(sock);
     printf("Disconnected from server\n");
 }

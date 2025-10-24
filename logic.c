@@ -6,12 +6,16 @@ int handle_user_input(const char *input, int sock, size_t prefix_len)
 
     if(!parse_send(input, filepath, sizeof(filepath), prefix_len))
     {
-        add_message("Failed to parse filepath\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to parse filepath.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
-    snprintf(msg_buff, sizeof(msg_buff), "\t\t\tFile transfer requested: %s\n", filepath);
-    add_message(msg_buff, 0, NULL);
+    snprintf(msg_buff, sizeof(msg_buff), "File transfer requested: %s\n", filepath);
+    format_system_messages(centered, sizeof(centered), msg_buff);
+    add_message(centered, 0, NULL);
+    memset(centered, 0, sizeof(centered));
 
     int result = transferSocket(sock, filepath);
     if(result == 0)
@@ -20,7 +24,9 @@ int handle_user_input(const char *input, int sock, size_t prefix_len)
     }
     else
     {
-        add_message("File transfer failed.\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "File transfer failed.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
     }
 
     return(result);
@@ -43,7 +49,9 @@ int parse_send(const char *input, char *filepath, size_t filepath_size, size_t p
 
     if(*ptr == '\0')
     {
-        add_message("Error: No filepath provided after ::send\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Error: No filepath provided after ::send.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(0);
     }
 
@@ -56,17 +64,16 @@ int parse_send(const char *input, char *filepath, size_t filepath_size, size_t p
     if(path_len >= filepath_size)
     {
         snprintf(msg_buff, sizeof(msg_buff), "Error: filepath too long (%zu characters, max %zu)\n", path_len, filepath_size - 1);
-        add_message(msg_buff, 0, NULL);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
+        return(0);
     }
 
     strncpy(filepath, ptr, path_len);
     filepath[path_len] = '\0';
     return(1);
 }
-
-
-
-
 
 
 void init_message_buffer(MessageBuffer *mb)
@@ -84,7 +91,7 @@ void destroy_message_buffer(MessageBuffer *mb)
 
 void cleanup_terminal()
 {
-    tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+    restore_term_state();
     move_cursor(term_height + 1, 1);
     printf("\n");
     fflush(stdout);
@@ -94,12 +101,13 @@ void signal_handler(int signum)
 {
     if(signum == SIGINT || signum == SIGTERM)
     {
-        g_running = 0;
-        cleanup_terminal();
+        running = 0;
+        restore_term_state();
         destroy_message_buffer(&g_msg_buffer);
-        exit(0);
+        fflush(stdout);
     }
 }
+
 
 void setup_signal_handlers()
 {
@@ -112,5 +120,11 @@ void setup_signal_handlers()
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
-    tcgetattr(STDIN_FILENO, &orig_termios);
+/*#ifdef SIGWINCH
+    sa.sa_handler = sigwinch_handler;
+    sigaction(SIGWINCH, &sa, NULL);
+#endif
+
+    save_terminal_state();*/
 }
+

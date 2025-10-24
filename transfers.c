@@ -7,32 +7,42 @@ int rcvSocket(int sock)
     uint32_t file_size_net;
     if(recv_all(sock, &file_size_net, sizeof(file_size_net)) < 0)
     {
-        add_message("Failed to receive file size\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to receive file size.\n\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
     uint32_t file_size = ntohl(file_size_net);
     if(file_size == 0)
     {
-        add_message("\t\t\t\tInvalid file size: 0 bytes\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Invalid file size: 0 bytes.\n\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
-    snprintf(msg_buff, sizeof(msg_buff), "\t\t\tReceiving file of size: %u bytes\n", file_size);
-    add_message(msg_buff, 0, NULL);
+    snprintf(msg_buff, sizeof(msg_buff), "Receiving file of size: %u bytes\n", file_size);
+    format_system_messages(centered, sizeof(centered), msg_buff);
+    add_message(centered, 0, NULL);
+    memset(centered, 0, sizeof(centered));
 
 
     if(file_size > MAX_FILE_SIZE)
     {
-        snprintf(msg_buff, sizeof(msg_buff), "\t\t\tFile size too large: %u bytes (max 50MB)\n", file_size);
-        add_message(msg_buff, 0, NULL);
+        snprintf(msg_buff, sizeof(msg_buff), "File size too large: %u bytes (max 50MB)\n", file_size);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
     uint32_t filename_len_net;
     if(recv_all(sock, &filename_len_net, sizeof(filename_len_net)) < 0)
     {
-        add_message("Failed to receive filename length\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to receive filename length.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
@@ -41,7 +51,9 @@ int rcvSocket(int sock)
     if(filename_len == 0 || filename_len >= MAX_FILENAME_LEN)
     {
         snprintf(msg_buff, sizeof(msg_buff), "Invalid filename length: %u\n", filename_len);
-        add_message(msg_buff, 0, NULL);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
@@ -50,25 +62,36 @@ int rcvSocket(int sock)
 
     if(recv_all(sock, filename, filename_len) < 0)
     {
-        add_message("Failed to receive filename\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to receive filename.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
     filename[filename_len] = '\0';
 
-    snprintf(msg_buff, sizeof(msg_buff), "\t\t\t\tReceiving file: %s\n", filename);
-    add_message(msg_buff, 0, NULL);
+    snprintf(msg_buff, sizeof(msg_buff), "Receiving file: %s\n", filename);
+    format_system_messages(centered, sizeof(centered), msg_buff);
+    add_message(centered, 0, NULL);
+    memset(centered, 0, sizeof(centered));
     
     FILE *recv_file = fopen(filename, "wb");
     if(!recv_file)
     {
         snprintf(msg_buff, sizeof(msg_buff), "Failed to create file: %s\n", filename);
-        add_message(msg_buff, 0, NULL);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("fopen");
         return(1);
     }
 
     size_t total_received = 0;
-    add_message("\t\t\t\tReceiving data...\n", 0, NULL);
+    size_t last_progress = 0;
+
+    format_system_messages(centered, sizeof(centered), "Receiving data...\n");
+    add_message(centered, 0, NULL);
+    memset(centered, 0, BUFSIZE);
+
 
     while(total_received < file_size)
     {
@@ -79,9 +102,12 @@ int rcvSocket(int sock)
         }
 
         ssize_t received = recv(sock, buffer, to_receive, 0);
-
         if(received < 0)
         {
+            if(errno == EINTR)
+            {
+                continue;
+            }
             add_message("recv() failed\n", 0, NULL);
             perror("recv");
             fclose(recv_file);
@@ -89,8 +115,10 @@ int rcvSocket(int sock)
         }
         else if(received == 0)
         {
-            snprintf(msg_buff, sizeof(msg_buff), "Connection closed prematurely. Expected %u bytes, got %zu bytes\n", file_size, total_received);
-            add_message(msg_buff, 0, NULL);
+            snprintf(msg_buff, sizeof(msg_buff), "\nConnection closed prematurely. Expected %u bytes, got %zu bytes\n", file_size, total_received);
+            format_system_messages(centered, sizeof(centered), msg_buff);
+            add_message(centered, 0, NULL);
+            memset(centered, 0, sizeof(centered));
             fclose(recv_file);
             return(1);
         }
@@ -98,8 +126,11 @@ int rcvSocket(int sock)
         size_t written = fwrite(buffer, 1, received, recv_file);
         if(written != (size_t)received)
         {
-            snprintf(msg_buff, sizeof(msg_buff), "\t\t\tfwrite() failed: wrote %zu bytes, expected %zd bytes\n", written, received);
-            add_message(msg_buff, 0, NULL);
+            snprintf(msg_buff, sizeof(msg_buff), "fwrite() failed: wrote %zu bytes, expected %zd bytes\n", written, received);
+            format_system_messages(centered, sizeof(centered), msg_buff);
+            add_message(centered, 0, NULL);
+            memset(centered, 0, sizeof(centered));
+
             perror("fwrite");
             fclose(recv_file);
             return(1);
@@ -107,23 +138,18 @@ int rcvSocket(int sock)
 
         total_received += received;
 
-        static size_t last_progress = 0;
-
-        if(total_received - last_progress > file_size / 20 || total_received - last_progress > 1024 * 1024
-            || total_received == file_size)
+        if(total_received == file_size)
         {
-            float progress = (float)total_received / file_size * 100.0f;
-            snprintf(msg_buff, sizeof(msg_buff), "\t\t\tProgress: %.1f%% (%.2f/%.2f MB)", progress, total_received / (1024.0 * 1024.0), file_size / (1024.0 * 1024.0));
-            add_message(msg_buff, 0, NULL);
+
             last_progress = total_received;
         }
     }
 
-    fflush(recv_file);
-    snprintf(msg_buff, sizeof(msg_buff), "\n\t\t\tFile received successfully: %zu bytes\n", total_received);
-    add_message(msg_buff, 0, NULL);
+    snprintf(msg_buff, sizeof(msg_buff), "\nFile received successfully: %zu bytes\n", total_received);
+    format_system_messages(centered, sizeof(centered), msg_buff);
+    add_message(centered, 0, NULL);
+    memset(centered, 0, sizeof(centered));
     fclose(recv_file);
-
     return(0);
 }
 
@@ -141,7 +167,7 @@ ssize_t recv_all(int sock, void *buffer, size_t length)
         }
         else if(received == 0)
         {
-            return(-1);
+            return(total_received);
         }
         total_received += received;
     }
@@ -197,7 +223,9 @@ int transferSocket(int sock, const char *filepath)
     if(fname_len == 0 || fname_len >= MAX_FILENAME_LEN)
     {
         snprintf(msg_buff, sizeof(msg_buff), "Invalid filename length: %zu\n", fname_len);
-        add_message(msg_buff, 0, NULL);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         return(1);
     }
 
@@ -205,14 +233,18 @@ int transferSocket(int sock, const char *filepath)
     if(!send_file)
     {
         snprintf(msg_buff, sizeof(msg_buff), "Failed to open file: %s\n", filepath);
-        add_message(msg_buff, 0, NULL);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("fopen");
         return(1);
     }
 
     if(fseek(send_file, 0, SEEK_END) != 0)
     {
-        add_message("Failed to seek to the end of file\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to seek to the end of file.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("fseek");
         fclose(send_file);
         return(1);
@@ -221,7 +253,9 @@ int transferSocket(int sock, const char *filepath)
     long file_size = ftell(send_file);
     if(file_size < 0)
     {
-        add_message("Failed to get file size\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to get file size.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("ftell");
         fclose(send_file);
         return(1);
@@ -229,25 +263,33 @@ int transferSocket(int sock, const char *filepath)
 
     if(fseek(send_file, 0, SEEK_SET) != 0)
     {
-        add_message("Failed to seek to the beginning of file\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to seek to the beginning of file.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("fseek");
         fclose(send_file);
         return(1);
     }
 
-    snprintf(msg_buff, sizeof(msg_buff), "\t\t\t\tFile size: %ld bytes\n", file_size);
-    add_message(msg_buff, 0, NULL);
+    snprintf(msg_buff, sizeof(msg_buff), "File size: %ld bytes\n", file_size);
+    format_system_messages(centered, sizeof(centered), msg_buff);
+    add_message(centered, 0, NULL);
+    memset(centered, 0, sizeof(centered));
 
     if(file_size == 0)
     {
-        add_message("Cannot send empty file\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Cannot send an empty file.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         fclose(send_file);
         return(1);
     }
     if(file_size > MAX_FILE_SIZE)
     {
         snprintf(msg_buff, sizeof(msg_buff), "File too large: %ld bytes (max %d)\n", file_size, MAX_FILE_SIZE);
-        add_message(msg_buff, 0, NULL);
+        format_system_messages(centered, sizeof(centered), msg_buff);
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         fclose(send_file);
         return(1);
     }
@@ -256,7 +298,9 @@ int transferSocket(int sock, const char *filepath)
 
     if(send_all(sock, &file_size_net, sizeof(file_size_net)) < 0)
     {
-        add_message("Failed to send file size\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to send file size.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("send");
         fclose(send_file);
         return(1);
@@ -266,7 +310,9 @@ int transferSocket(int sock, const char *filepath)
     uint32_t filename_len_net = htonl(filename_len);
     if(send_all(sock, &filename_len_net, sizeof(filename_len_net)) < 0)
     {
-        add_message("Failed to send filename length", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to send filename length.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("send");
         fclose(send_file);
         return(1);
@@ -274,14 +320,20 @@ int transferSocket(int sock, const char *filepath)
 
     if(send_all(sock, filename, filename_len) < 0 )
     {
-        add_message("Failed to send filename\n", 0, NULL);
+        format_system_messages(centered, sizeof(centered), "Failed to send filename.\n");
+        add_message(centered, 0, NULL);
+        memset(centered, 0, sizeof(centered));
         perror("send");
         fclose(send_file);
         return(1);
     } 
 
     size_t total_sent = 0;
-    add_message("\t\t\t\tsending file...\n", 0, NULL);
+
+    snprintf(msg_buff, sizeof(msg_buff), "Sending file...\n\n");
+    format_system_messages(centered, sizeof(centered), msg_buff);
+    add_message(centered, 0, NULL);
+    memset(centered, 0, BUFSIZE);
 
     while(total_sent < (size_t)file_size)
     {
@@ -295,6 +347,7 @@ int transferSocket(int sock, const char *filepath)
             }
             else
             {
+                format_system_messages(centered, sizeof(centered), "fread() error.\n");
                 add_message("fread() error", 0, NULL);
                 perror("fread");
                 fclose(send_file);
@@ -304,7 +357,9 @@ int transferSocket(int sock, const char *filepath)
 
         if(send_all(sock, buffer, chunk_size) < 0)
         {
-            add_message("File transfer failed\n", 0, NULL);
+            format_system_messages(centered, sizeof(centered), "File transfer failed.\n\n");
+            add_message(centered, 0, NULL);
+            memset(centered, 0, sizeof(centered));
             perror("send");
             fclose(send_file);
             return(1);
@@ -312,14 +367,12 @@ int transferSocket(int sock, const char *filepath)
 
         total_sent += chunk_size;
 
-        static size_t last_progress = 0;
-        float progress = (float)total_sent / file_size * 100.0f;
-        if(total_sent - last_progress > (size_t)file_size / 10 || total_sent == (size_t)file_size)
+        if(total_sent == (size_t)file_size)
         {
-            snprintf(msg_buff, sizeof(msg_buff), "\r\t\t\tProgress: %.2f%% (%zu/%ld bytes)", progress, total_sent, file_size);
-            add_message(msg_buff, 0, NULL);
-            last_progress = total_sent;
-            fflush(stdout);
+            add_message("\n", 0, NULL);
+            format_system_messages(centered, sizeof(centered), "FILE SENT SUCCESSFULLY.\n");
+            add_message(centered, 0, NULL);
+            memset(centered, 0, BUFSIZE);
         }
     }
 
@@ -341,10 +394,10 @@ ssize_t send_all(int sock, const void *buffer, size_t length)
         }
         else if(sent == 0)
         {
-            return(-1);
+            return(total_sent);
         }
         total_sent += sent;
     }
-    return total_sent;
+    return(total_sent);
 }
 
