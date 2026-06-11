@@ -1,26 +1,40 @@
-# _*_ makefile _*_
-
 CC = gcc
-all: chat
+CFLAGS = -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L
+BUILD_DIR = build
+SRC_DIR = src
+INCLUDE_DIR = include
 
-chat: main.o server.o client.o transfers.o terminal.o logic.o
-	gcc main.o server.o client.o transfers.o terminal.o logic.o -o chat 
+SOURCES = $(SRC_DIR)/main.c $(SRC_DIR)/server.c $(SRC_DIR)/client.c $(SRC_DIR)/transfers.c $(SRC_DIR)/terminal.c $(SRC_DIR)/logic.c
+OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/server.o $(BUILD_DIR)/client.o $(BUILD_DIR)/transfers.o $(BUILD_DIR)/terminal.o $(BUILD_DIR)/logic.o
+TARGET = chat
 
-main.o: main.c headers.h
-	gcc -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L -c main.c 
+all: $(BUILD_DIR) $(TARGET)
 
-server.o: server.c headers.h
-	gcc -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L -c server.c 
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
-client.o: client.c headers.h
-	gcc -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L -c client.c 
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ -o $@
 
-transfers.o: transfers.c headers.h
-	gcc -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L -c transfers.c 
+$(BUILD_DIR)/main.o: $(SRC_DIR)/main.c $(INCLUDE_DIR)/headers.h
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
-terminal.o: terminal.c headers.h
-	gcc -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L -c terminal.c
+$(BUILD_DIR)/server.o: $(SRC_DIR)/server.c $(INCLUDE_DIR)/headers.h
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
-logic.o: logic.c headers.h
-	gcc -Wall -Wextra -pthread -D_POSIX_C_SOURCE=200809L -c logic.c
+$(BUILD_DIR)/client.o: $(SRC_DIR)/client.c $(INCLUDE_DIR)/headers.h
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
+$(BUILD_DIR)/transfers.o: $(SRC_DIR)/transfers.c $(INCLUDE_DIR)/headers.h
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+
+$(BUILD_DIR)/terminal.o: $(SRC_DIR)/terminal.c $(INCLUDE_DIR)/headers.h
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+
+$(BUILD_DIR)/logic.o: $(SRC_DIR)/logic.c $(INCLUDE_DIR)/headers.h
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
+
+clean:
+	rm -rf $(BUILD_DIR) $(TARGET)
+
+.PHONY: all clean
