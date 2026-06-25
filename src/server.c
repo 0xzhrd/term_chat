@@ -1,10 +1,14 @@
 #include "../include/headers.h"
 
-void HandleClient(char **argv)
+void HandleClient(char *argv[])
 {
-    memset(centered, 0, BUFSIZE);
+    uint16_t serverPort;
+    if(parse_port(argv[2], &serverPort) != 0)
+    {
+        fprintf(stderr, "Invalid port '%s' (expected 1-%d).\n", argv[2], MAX_PORT);
+        exit(1);
+    }
 
-    in_port_t serverPort = atoi(argv[2]);
     int serverSock;
     if((serverSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
     {
@@ -33,7 +37,7 @@ void HandleClient(char **argv)
         exit(1);
     }
 
-    if(listen(serverSock, MAXPENDING) < 0)
+    if(listen(serverSock, MAX_PENDING) < 0)
     {
         fprintf(stderr, "listen() failed.\n");
         close(serverSock);
@@ -44,11 +48,11 @@ void HandleClient(char **argv)
     save_term_state();
     clear_screen();
 
+    char centered[BUFSIZE];
     format_system_messages(centered, sizeof(centered), "SERVER ACTIVE\n");
-    add_message(centered, 0, NULL);
-    memset(centered, 0, BUFSIZE);
+    add_message(centered, MSG_SYSTEM, NULL);
 
-    while(running)
+    while(g_running)
     {
         struct sockaddr_in clntAddr;
         socklen_t clntAddrLen = sizeof(clntAddr);
@@ -58,50 +62,45 @@ void HandleClient(char **argv)
 
         FD_ZERO(&accept_fds);
         FD_SET(serverSock, &accept_fds);
-
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
         int activity = select(serverSock + 1, &accept_fds, NULL, NULL, &timeout);
-
         if(activity < 0)
         {
             if(errno == EINTR)
-            {
                 continue;
-            }
+
             fprintf(stderr, "select() failed.\n");
-            close(serverSock);
             break;
         }
 
         if(activity == 0)
-        {
             continue;
-        }
+
 
         int clntSock = accept(serverSock, (struct sockaddr*) &clntAddr, &clntAddrLen);
         if(clntSock < 0)
         {
             if(errno == EINTR)
-            {
                 continue;
-            }
+
             fprintf(stderr, "accept() failed.\n");
             continue;
         }
         
         char clntName[INET_ADDRSTRLEN];
-        if(inet_ntop(AF_INET, &clntAddr.sin_addr.s_addr, clntName, sizeof(clntName)) != NULL)
+        if(inet_ntop(AF_INET, &clntAddr.sin_addr, clntName, sizeof(clntName)) != NULL)
         {
-            snprintf(msg_buff, sizeof(msg_buff), "Handling client %s on port %d\n\n", clntName, ntohs(serverAddr.sin_port));
-            format_system_messages(centered, sizeof(centered), msg_buff);
-            add_message(centered, 0, NULL);
-            memset(centered, 0, sizeof(centered));
+            char line[BUFSIZE];
+            char msg[BUFSIZE];
+            snprintf(msg, sizeof(msg), "Handling client %s on port %d\n\n", clntName, ntohs(serverAddr.sin_port));
+            format_system_messages(line, sizeof(line), msg);
+            add_message(line, MSG_SYSTEM, NULL);
         }
         else
         {
-            add_message("Unable to get client address\n", 0, NULL);
+            add_message("Unable to get client address\n", MSG_SYSTEM, NULL);
             strcpy(clntName, "unknown");
         }
             
@@ -112,7 +111,6 @@ void HandleClient(char **argv)
 
 void HandleTCPClient(int clntSock, char *clntName)
 {
-    char *Name = clntName; 
     char input[MAX_INPUT] = {0};
     size_t input_len = 0;
     size_t cursor_pos = 0;
@@ -121,18 +119,15 @@ void HandleTCPClient(int clntSock, char *clntName)
     set_raw_mode();
     setup_input_line(input);
 
-    while(running)
+    while(g_running)
     {
-        char servStr[BUFSIZE];
         fd_set read_fds;
         struct timeval timeout;
-
         FD_ZERO(&read_fds);
         FD_SET(clntSock, &read_fds);
         FD_SET(STDIN_FILENO, &read_fds);
 
         int max_fd = (clntSock > STDIN_FILENO) ? clntSock : STDIN_FILENO;
-
         timeout.tv_sec = 0;
         timeout.tv_usec = SELECT_TIMEOUT; 
 
@@ -140,54 +135,51 @@ void HandleTCPClient(int clntSock, char *clntName)
         if(activity < 0)
         {
             if(errno == EINTR)
-            {
                 continue;
-            }
-            add_message("select() error.\n", 0, NULL);
+
+            add_message("select() error.\n", MSG_SYSTEM, NULL);
             break;
         }
 
         if(FD_ISSET(clntSock, &read_fds))
         {
-            identifier = 2;
-
             char buffer[BUFSIZE];
             memset(buffer, 0, BUFSIZE);
             ssize_t numBytesRcvd = recv(clntSock, buffer, (BUFSIZE - 1), 0);
             if(numBytesRcvd <= 0)
             {
-                snprintf(msg_buff, sizeof(msg_buff), "recv() failed/ %s DISCONNECTED.\n", clntName);
-                format_system_messages(centered, sizeof(centered), msg_buff);            
-                add_message(centered, 0, NULL);
-                memset(centered, 0, sizeof(centered));
+                char line[BUFSIZE];
+                char msg[BUFSIZE];
+                snprintf(msg, sizeof(msg), "recv() failed/ %s DISCONNECTED.\n", clntName);
+                format_system_messages(line, sizeof(line), msg);            
+                add_message(line, MSG_SYSTEM, NULL);
                 break;
             }
             buffer[numBytesRcvd] = '\0';
+
             if(strcmp(buffer, "FILE_RECV") == 0)
             {
                 const char ack[] = "ACK";
                 if(send(clntSock, ack, strlen(ack), 0) < 0)
                 {
-                    add_message("Failed to send ACK\n", 0, NULL);
+                    add_message("Failed to send ACK\n", MSG_SYSTEM, NULL);
                     break;
                 }
-
+                char line[BUFSIZE];
+                
                 if(rcvSocket(clntSock) == 0)
                 {
-                    format_system_messages(centered, sizeof(centered), "FILE RECEIVED SUCCESSFULLY.\n");
-                    add_message(centered, 0, Name);
-                    memset(centered, 0, sizeof(centered));
+                    format_system_messages(line, sizeof(line), "FILE RECEIVED SUCCESSFULLY.\n");
                 }
                 else
                 {
-                    format_system_messages(centered, sizeof(centered), "FILE TRANSFER FAILED.\n");
-                    add_message(centered, 0, Name);
-                    memset(centered, 0,  sizeof(centered));
+                    format_system_messages(line, sizeof(line), "FILE TRANSFER FAILED.\n");
                 }
+                add_message(line, MSG_SYSTEM, clntName);
             }
             else
             {
-                add_message(buffer, identifier, Name);
+                add_message(buffer, MSG_PEER, clntName);
             }
             setup_input_line(input);
             fflush(stdout);
@@ -199,15 +191,15 @@ void HandleTCPClient(int clntSock, char *clntName)
 
             if(key == KEY_PAGE_UP)
             {
-                scroll_offset += (term_height - 2);
-                display_messages(&g_msg_buffer, Name);
+                g_scroll_offset += (g_term_height - 2);
+                display_messages(&g_msg_buffer, clntName);
                 setup_input_line(input);
             }
             else if(key == KEY_PAGE_DOWN)
             {
-                scroll_offset -= (term_height - 2);
-                if(scroll_offset < 0) scroll_offset = 0;
-                display_messages(&g_msg_buffer, Name);
+                g_scroll_offset -= (g_term_height - 2);
+                if(g_scroll_offset < 0) g_scroll_offset = 0;
+                display_messages(&g_msg_buffer, clntName);
                 setup_input_line(input);
             }
 
@@ -219,111 +211,59 @@ void HandleTCPClient(int clntSock, char *clntName)
 
                     if(strcmp(input, "::quit") == 0)
                     {
-                        add_message("\n\nDISCONNECTED.\n", 0, NULL);
-                        memset(input, 0, sizeof(input));
-                        restore_term_state();
-                        move_cursor(term_height + 1, 1);
-                        printf("\n");
-                        exit(0);
-                    }
-                    
-                    identifier = 1;
-                    add_message(input, identifier, Name);
-                    
-                    strncpy(servStr, input, sizeof(servStr) - 1);
-                    servStr[sizeof(servStr) - 1] = '\0';
+                        add_message("\n\nDISCONNECTED.\n", MSG_SYSTEM, NULL);
+                        g_running = 0;
+                        break;
+                    }                    
+                    add_message(input, MSG_SELF, clntName);
                     
                     const char *command_prefix = "::send";
                     size_t prefix_len = strlen(command_prefix);
 
-                    if(strncmp(servStr, command_prefix, prefix_len) == 0)
+                    if(strncmp(input, command_prefix, prefix_len) == 0)
                     {
-                        const char *filename_start = servStr + prefix_len;
-
+                        const char *filename_start = input + prefix_len;
                         if(*filename_start == '\0' || *filename_start == '\n')
                         {
-                            format_system_messages(centered, sizeof(centered), "Error: No filename provided.\n");
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                            memset(input, 0, sizeof(input));
-                            input_len = 0;
-                            cursor_pos = 0;
-                            setup_input_line(input);
-                            continue;
+                            char line[BUFSIZE];
+                            format_system_messages(line, sizeof(line), "Error: No filename provided.\n");
+                            add_message(line, MSG_SYSTEM, NULL);
                         }
+                        else
+                        {
+                            const char protocol = "FILE_RECV";
+                            if(send_all(clntSock, protocol, strlen(protocol)) < 0)
+                                add_message("send() for file transfer failed.\n", 0, NULL);
+                    
+                            else
+                            {
+                                char ack[4] = {0};
+                                ssize_t ack_received = recv_with_timeout(clntSock, ack, 3, ACK_TIMEOUT);
+                                char line[BUFSIZE];
 
-                        const char protocol[] = "FILE_RECV";
-                        size_t protocolLen = strlen(protocol);
-                        ssize_t bytesSent = send(clntSock, protocol, protocolLen, 0);
-                        
-                        if(bytesSent < 0)
-                        {
-                            add_message("send() for file transfer failed.\n", 0, NULL);
-                            perror("send");
-                            memset(input, 0, sizeof(input));
-                            input_len = 0;
-                            cursor_pos = 0;
-                            setup_input_line(input);
-                            continue;
+                                if(ack_received <= 0)
+                                {
+                                    format_system_messages(line, sizeof(line), "Failed to recveive ACK(timeout/error).\n");
+                                    add_message(line, MSG_SYSTEM, NULL);
+                                }
+                                else if(ack_received < 3 || strncmp(ack, "ACK", 3) != 0)
+                                {
+                                    format_system_messages(line, sizeof(line), "Invalid ACK received from peer.\n");
+                                    add_message(line, MSG_SYSTEM, NULL);
+                                }
+                                else if(handle_user_input(input, clntSock, prefix_len) != 0)
+                                {
+                                    format_system_messages(line, sizeof(line), "File transfer encountered an error.\n");
+                                    add_message(line, MSG_SYSTEM, NULL);
+                                }
+                            }
                         }
-                        else if((size_t)bytesSent != protocolLen)
-                        {
-                            snprintf(msg_buff, sizeof(msg_buff), "Partial send of protocol message (%zd/%zu bytes).\n", bytesSent, protocolLen);
-                            format_system_messages(centered, sizeof(centered), msg_buff);
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                            continue;
-                        }
-                        
-                        char ack[4] = {0};
-                        ssize_t ack_received = recv_with_timeout(clntSock, ack, 3, ACK_TIMEOUT);
-                        
-                        if(ack_received < 0)
-                        {
-                            format_system_messages(centered, sizeof(centered), "Failed to receive ACK (timeout/error).\n");
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                            continue;
-                        }
-
-                        else if(ack_received == 0)
-                        {
-                            format_system_messages(centered, sizeof(centered), "Server closed connection while waiting for ACK.\n");
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                            continue;
-                        } 
-                        else if(ack_received < 3)
-                        {
-                            format_system_messages(centered, sizeof(centered), "Incomplete ACK received from server.\n");
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                            continue;
-                        }
-
-                        else if(strncmp(ack, "ACK", 3) != 0)
-                        {
-                            format_system_messages(centered, sizeof(centered), "Invalid ACK received from server.\n");
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                            continue;
-                        }
-                        else if(handle_user_input(servStr, clntSock, prefix_len) != 0)
-                        {
-                            format_system_messages(centered, sizeof(centered), "File transfer encountered an error.\n");
-                            add_message(centered, 0, NULL);
-                            memset(centered, 0, sizeof(centered));
-                        }
-                        continue; 
                     }
                     else
                     {
-                        size_t servStrLen = strlen(servStr);
-                        ssize_t numBytesSent = send(clntSock, servStr, servStrLen, 0);
-                        
-                        if(numBytesSent < 0)
+                        if(send_all(clntSock, input, strlen(input)) < 0)
                         {
-                            add_message("send() failed\n", 0, NULL);
+                            add_message("send() failed\n", MSG_SYSTEM, NULL);
                             break;
                         }
                     }
@@ -384,8 +324,10 @@ void HandleTCPClient(int clntSock, char *clntName)
         }
     }
 
-    move_cursor(term_height + 1, 1);
+    move_cursor(g_term_height + 1, 1);
+    char centered[BUFSIZE];
     format_system_messages(centered, sizeof(centered), "Client disconnected. Press Ctrl + C to exit the program\n");
     printf(ANSI_RED "%s" ANSI_RESET, centered);
+    fflush(stdout);
     close(clntSock);
 }
