@@ -2,20 +2,24 @@
 
 void HandleServer(char *argv[]) 
 {
-    char clntStr[BUFSIZE];
-    char *ServerIP = argv[2];
-    in_port_t ServerPort = atoi(argv[3]);
+    const char *ServerIP = argv[2];
+    uint16_t ServerPort;
+
+    if(parse_port(argv[3], &ServerPort) != 0)
+    {
+        fprintf(stderr, "Invalid port '%s' (expected 1-%d).\n", argv[3], MAX_PORT);
+        exit(1);
+    }
 
     get_terminal_size();
     save_term_state();
     clear_screen();
 
+    char centered[BUFSIZE];
     format_system_messages(centered, sizeof(centered), "CLIENT ACTIVE\n");
     add_message(centered, 0, NULL);
-    memset(centered, 0, sizeof(centered));
 
     char input[MAX_INPUT] = {0};
-
     set_raw_mode();
     setup_input_line(input);
 
@@ -31,7 +35,7 @@ void HandleServer(char *argv[])
     memset(&ServerAddr, 0, sizeof(ServerAddr));
     ServerAddr.sin_family = AF_INET;
 
-    int rtnVal = inet_pton(AF_INET, ServerIP, &ServerAddr.sin_addr.s_addr);
+    int rtnVal = inet_pton(AF_INET, ServerIP, &ServerAddr.sin_addr);
     if(rtnVal == 0)
     {
         fprintf(stderr, "inet_pton failed, invalid address string.\n");
@@ -48,7 +52,7 @@ void HandleServer(char *argv[])
     }
     ServerAddr.sin_port = htons(ServerPort);
 
-    if(connect(sock, (struct sockaddr *) &ServerAddr, sizeof(ServerAddr)) < 0)
+    if(connect(sock, (struct sockaddr *)&ServerAddr, sizeof(ServerAddr)) < 0)
     {
         fprintf(stderr, "connect failed.\n");
         restore_term_state();
@@ -57,18 +61,18 @@ void HandleServer(char *argv[])
     }
 
     char servName[INET_ADDRSTRLEN];
-    if(inet_ntop(AF_INET, &ServerAddr.sin_addr.s_addr, servName, sizeof(servName)) == NULL)
+    if(inet_ntop(AF_INET, &ServerAddr.sin_addr, servName, sizeof(servName)) == NULL)
     {
         add_message("inet_ntop() failed. Could not get server address\n", 0, NULL);
         strcpy(servName, "unknown");
     }
-    char *Name = servName;
+    const char *Name = servName;
     size_t input_len = 0;
     size_t cursor_pos = 0;
     const size_t prompt_len = 4;
 
 
-    while(running)
+    while(g_running)
     {
         fd_set read_fds;
         struct timeval timeout;
@@ -87,56 +91,47 @@ void HandleServer(char *argv[])
         if(activity < 0)
         {
             if(errno == EINTR)
-            {
                 continue;
-            }
+
             add_message("select() error.\n", 0, NULL);
             break;
         }
 
         if(FD_ISSET(sock, &read_fds))
         {   
-            identifier = 2;
             char buffer[BUFSIZE];
             memset(buffer, 0, sizeof(buffer));
             ssize_t numBytes = recv(sock, buffer, (BUFSIZE - 1), 0);
-
             if(numBytes <= 0)
             {
                 add_message("\nSERVER DISCONNECTED\n", 0, NULL);
-
-                restore_term_state();
-                close(sock);
-                exit(1);
+                g_running = 0;
+                break;
             } 
-
-
             buffer[numBytes] = '\0';
+
             if(strcmp(buffer, "FILE_RECV") == 0)
             {
                 const char ack[] = "ACK";
-                if(send(sock, ack, strlen(ack), 0) < 0)
+                if(send_all(sock, ack, strlen(ack)) < 0)
                 {
-                    add_message("Failed to send ACK\n", 0, NULL);
+                    add_message("Failed to send ACK\n", MSG_SYSTEM, NULL);
                     break;
                 }
+                char line[BUFSIZE];
 
                 if(rcvSocket(sock) == 0)
                 {
-                    format_system_messages(centered, sizeof(centered), "FILE RECEIVED SUCCESSFULLY.\n");
-                    add_message(centered, 0, Name);
-                    memset(centered, 0, sizeof(centered));
+                    format_system_messages(line, sizeof(line), "FILE RECEIVED SUCCESSFULLY.\n");
                 }
                 else
                 {
                     format_system_messages(centered, sizeof(centered), "FILE TRANSFER FAILED.\n");
-                    add_message(centered, 0, Name);
-                    memset(centered, 0,  sizeof(centered));
                 }
             }
             else
             {
-                add_message(buffer, identifier, Name);
+                add_message(buffer, MSG_PEER, Name);
             }
             setup_input_line(input);
             fflush(stdout);
@@ -148,14 +143,14 @@ void HandleServer(char *argv[])
 
             if(key == KEY_PAGE_UP)
             {
-                scroll_offset += (term_height - 2);
+                g_scroll_offset += (g_term_height - 2);
                 display_messages(&g_msg_buffer, Name);
                 setup_input_line(input);
             }
             else if(key == KEY_PAGE_DOWN)
             {
-                scroll_offset -= (term_height - 2);
-                if(scroll_offset < 0) scroll_offset = 0;
+                g_scroll_offset -= (g_term_height - 2);
+                if(g_scroll_offset < 0) g_scroll_offset = 0;
                 display_message(&g_msg_buffer, Name);
                 setup_input_line(input);
             }
@@ -170,64 +165,50 @@ void HandleServer(char *argv[])
 
                         clear_screen();
                         add_message("\n\nDISCONNECTED.\n", 0, NULL);
-                        memset(input, 0, sizeof(input));
-                        restore_term_state();
-                        running = 0;
-                        exit(0);
+                        g_running = 0;
+                        break;
                     }
                     
-                    identifier = 1;
-                    add_message(input, identifier, Name);
-                    
-                    strncpy(clntStr, input, sizeof(clntStr) - 1);
-                    clntStr[sizeof(clntStr) - 1] = '\0';
+                    add_message(input, MSG_SELF, Name);
                     
                     const char *command_prefix = "::send";
                     size_t prefix_len = strlen(command_prefix);
 
-                    if(strncmp(clntStr, command_prefix, prefix_len) == 0)
+                    if(strncmp(input, command_prefix, prefix_len) == 0)
                     {
                         const char protocol[] = "FILE_RECV";
-                        size_t protocolLen = strlen(protocol);
-                        ssize_t bytesSent = send(sock, protocol, protocolLen, 0);
-                        
-                        if(bytesSent < 0 || (size_t)bytesSent != protocolLen)
+                        if(send_all(sock, protocol, strlen(protocol)) < 0)
                         {
-                            add_message("send() for file transfer failed.\n", 0, NULL);
+                            add_message("send() for file transfer failed.\n", MSG_SYSTEM, NULL);
                         }
                         else
                         {
                             char ack[4] = {0};
                             ssize_t ack_received = recv_with_timeout(sock, ack, 3, ACK_TIMEOUT);
+                            char line[BUFSIZE];
                             
                             if(ack_received <= 0)
                             {
-                                format_system_messages(centered, sizeof(centered), "Failed to receive ACK (timeout/error).\n");
-                                add_message(centered, 0, NULL);
-                                memset(centered, 0, sizeof(centered));
+                                format_system_messages(line, sizeof(line), "Failed to receive ACK (timeout/error).\n");
+                                add_message(line, MSG_SYSTEM, NULL);
                             }
-                            else if(strncmp(ack, "ACK", 3) != 0)
+                            else if(ack_received < 3 || strncmp(ack, "ACK", 3) != 0)
                             {
-                                format_system_messages(centered, sizeof(centered), "Invalid ACK received from server.\n");
-                                add_message(centered, 0, NULL);
-                                memset(centered, 0, sizeof(centered));
+                                format_system_messages(line, sizeof(line), "Invalid ACK received from server.\n");
+                                add_message(line, MSG_SYSTEM, NULL);
                             }
-                            else if(handle_user_input(clntStr, sock, prefix_len) != 0)
+                            else if(handle_user_input(input, sock, prefix_len) != 0)
                             {
-                                format_system_messages(centered, sizeof(centered), "File transfer encountered an error.\n");
-                                add_message(centered, 0, NULL);
-                                memset(centered, 0, sizeof(centered));
+                                format_system_messages(line, sizeof(line), "File transfer encountered an error.\n");
+                                add_message(line, MSG_SYSTEM, NULL);
                             }
                         }
                     }
                     else
-                    {
-                        size_t clntStrLen = strlen(clntStr);
-                        ssize_t numBytesSent = send(sock, clntStr, clntStrLen, 0);
-                        
-                        if(numBytesSent < 0)
+                    {   
+                        if(send_all(sock, input, strlen(input)) < 0)
                         {
-                            add_message("send() failed.\n", 0, NULL);
+                            add_message("send() failed.\n", MSG_SYSTEM, NULL);
                             break;
                         }
                     }  
@@ -274,7 +255,7 @@ void HandleServer(char *argv[])
                 if(input_len < MAX_INPUT - 1)
                 {
                     memmove(&input[cursor_pos + 1], &input[cursor_pos], input_len - cursor_pos + 1);
-                    input[cursor_pos] = key;
+                    input[cursor_pos] = (char)key;
                     cursor_pos++;
                     input_len++;
                     input[input_len] = '\0';
@@ -288,7 +269,7 @@ void HandleServer(char *argv[])
     }
 
     restore_term_state();
-    move_cursor(term_height + 1, 1);
+    move_cursor(g_term_height + 1, 1);
     close(sock);
     printf("Disconnected from server\n");
 }
