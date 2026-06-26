@@ -231,7 +231,7 @@ void HandleTCPClient(int clntSock, char *clntName)
                         }
                         else
                         {
-                            const char protocol = "FILE_RECV";
+                            const char protocol[] = "FILE_RECV";
                             if(send_all(clntSock, protocol, strlen(protocol)) < 0)
                                 add_message("send() for file transfer failed.\n", 0, NULL);
                     
@@ -311,7 +311,7 @@ void HandleTCPClient(int clntSock, char *clntName)
                 if(input_len < MAX_INPUT - 1)
                 {
                     memmove(&input[cursor_pos + 1], &input[cursor_pos], input_len - cursor_pos + 1);
-                    input[cursor_pos] = key;
+                    input[cursor_pos] = (char)key;
                     cursor_pos++;
                     input_len++;
                     input[input_len] = '\0';

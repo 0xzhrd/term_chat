@@ -1,7 +1,7 @@
 /* main.c           : 
-   author           :
-   date             :
-   revision history :
+   author           : 
+   date             : 
+   revision history : 
 */
 
 #include "../include/headers.h"
@@ -32,7 +32,7 @@ void signal_handler(int signum)
     }
 }
 
-void setup_signal_handlers()
+void setup_signal_handlers(void)
 {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

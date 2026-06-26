@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <termios.h>
 #include <pthread.h>
+#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -70,7 +71,7 @@ typedef struct
 
 
 extern MessageBuffer g_msg_buffer;
-extern struct termios orig_termios;
+extern struct termios g_orig_termios;
 extern int g_term_height;
 extern int g_term_width;
 extern int g_scroll_offset;

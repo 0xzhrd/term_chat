@@ -151,7 +151,7 @@ void HandleServer(char *argv[])
             {
                 g_scroll_offset -= (g_term_height - 2);
                 if(g_scroll_offset < 0) g_scroll_offset = 0;
-                display_message(&g_msg_buffer, Name);
+                display_messages(&g_msg_buffer, Name);
                 setup_input_line(input);
             }
             else if(key == '\n' || key == '\r')
@@ -186,7 +186,7 @@ void HandleServer(char *argv[])
                             char ack[4] = {0};
                             ssize_t ack_received = recv_with_timeout(sock, ack, 3, ACK_TIMEOUT);
                             char line[BUFSIZE];
-                            
+
                             if(ack_received <= 0)
                             {
                                 format_system_messages(line, sizeof(line), "Failed to receive ACK (timeout/error).\n");
